@@ -53,6 +53,16 @@ SLACK_ALLOW_BOTS=mentions
 Do not add Slack tokens to these values. Keep bot and app tokens in the
 existing secret provider.
 
+Treat `NEMOCLAW_ACTOR_POLICY_ENABLED` as an explicit opt-in. Require real
+owner, local-bot, peer, and channel IDs when it is true; do not silently fall
+back to sample or synthetic IDs. When it is false or missing:
+
+- do not emit `allow_bots` in Hermes Slack platform configuration
+- do not emit `SLACK_ALLOW_BOTS`
+- do not add the `agent-collaboration` toolset
+- do not register the outbound A2A tool or hooks
+- preserve Hermes's default rejection of bot-authored messages
+
 ## Slack app
 
 Require:
@@ -82,6 +92,11 @@ Drop bot-authored messages unless all are true:
 - sender ID is registered
 - channel ID is registered
 - the strict A2A envelope parses
+
+Never turn on bot-message acceptance independently from this policy. The
+configuration generator must gate `allow_bots: "mentions"`,
+`SLACK_ALLOW_BOTS=mentions`, and the `agent-collaboration` toolset on the same
+validated policy-enabled condition.
 
 Hermes v2026.7.1 removes the local app mention before assigning normalized
 `MessageEvent.text`. Pass the original Slack payload text from
@@ -198,6 +213,10 @@ Add gateway tests that prove:
 - response cannot trigger another channel response
 - timeout sends one private notice and no retry
 - missing policy integration fails closed
+- policy-disabled generated config contains no bot allowance or collaboration
+  toolset
+- policy-enabled startup with missing or placeholder IDs fails before sandbox
+  creation
 - concurrent owner and collaborator turns cannot exchange actor authority
 - hook exceptions return `skip` and never reach the LLM
 
