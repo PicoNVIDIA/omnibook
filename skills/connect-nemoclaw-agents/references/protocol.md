@@ -7,6 +7,7 @@ registered bots. The protocol is line-oriented and single-hop.
 
 ```text
 <@PEER_BOT_ID>
+Hey there - Pico NemoClaw here. Could you share your public model and context window?
 [A2A:v1 request]
 id: req-0123456789abcdef
 action: model.info
@@ -17,15 +18,21 @@ Requirements:
 
 - Generate a new unpredictable request ID.
 - Mention exactly the registered peer bot.
+- Permit at most one deterministic conversation line immediately before the
+  envelope. It never enters the LLM.
 - Allow only `model.info`.
 - Require `ttl: 1`.
 - Cache the sender, channel, and request ID to reject replays.
-- Do not include prompts, owner data, return routes, or free-form payloads.
+- Do not include owner data, return routes, or free-form payloads.
+- Post with Slack `parse="none"` and link/media unfurling disabled.
+- Normalize only Slack's exact auto-linked representation of `model.info`;
+  reject arbitrary links.
 
 ## Success response
 
 ```text
 <@REQUESTING_BOT_ID>
+Hi there - I'm Peer NemoClaw. I'm running vendor/model-name; here is my public runtime card.
 [A2A:v1 response]
 id: req-0123456789abcdef
 status: ok
@@ -43,6 +50,7 @@ ttl: 0
 
 ```text
 <@REQUESTING_BOT_ID>
+Hi there - I could not share public model information safely.
 [A2A:v1 response]
 id: req-0123456789abcdef
 status: error

@@ -38,6 +38,12 @@ _USER_ID_RE = re.compile(r"^[UW][A-Z0-9]{8,}$")
 _CHANNEL_ID_RE = re.compile(r"^[CG][A-Z0-9]{8,}$")
 _DM_ID_RE = re.compile(r"^D[A-Z0-9]{8,}$")
 _SAFE_VALUE_RE = re.compile(r"[^A-Za-z0-9 ._:/,+-]")
+_SLACK_MODEL_INFO_LINKS = frozenset(
+    {
+        "<http://model.info|model.info>",
+        "<https://model.info|model.info>",
+    }
+)
 
 _SENSITIVE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -274,6 +280,14 @@ def _safe_value(value: object, *, fallback: str) -> str:
     return text or fallback
 
 
+def _normalize_transport_value(key: str, value: str) -> str:
+    """Normalize only Slack's exact auto-linking of the fixed v1 capability."""
+
+    if key in {"action", "capabilities"} and value in _SLACK_MODEL_INFO_LINKS:
+        return "model.info"
+    return value
+
+
 def parse_message(text: str) -> Optional[A2AMessage]:
     """Parse the strict A2A v1 envelope or fail closed."""
 
@@ -283,6 +297,15 @@ def parse_message(text: str) -> Optional[A2AMessage]:
     lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
     if not lines:
         return None
+    header_indexes = [
+        index for index, line in enumerate(lines) if _HEADER_RE.fullmatch(line)
+    ]
+    if len(header_indexes) != 1 or header_indexes[0] > 1:
+        return None
+    header_index = header_indexes[0]
+    if header_index == 1 and sensitive_reasons(lines[0]):
+        return None
+    lines = lines[header_index:]
     header = _HEADER_RE.fullmatch(lines[0])
     if header is None:
         return None
@@ -297,7 +320,7 @@ def parse_message(text: str) -> Optional[A2AMessage]:
         value = value.strip()
         if not key or not value or key in fields or len(value) > 256:
             return None
-        fields[key] = value
+        fields[key] = _normalize_transport_value(key, value)
 
     request_fields = {"id", "action", "ttl"}
     response_fields = {
@@ -395,6 +418,7 @@ def build_request(
     *,
     action: str = "model.info",
     request_id: Optional[str] = None,
+    requester_name: str = "NemoClaw peer",
 ) -> tuple[str, str]:
     if not _USER_ID_RE.fullmatch(peer_id):
         raise ContractError("invalid peer bot ID")
@@ -403,9 +427,14 @@ def build_request(
     effective_id = request_id or f"req-{secrets.token_hex(8)}"
     if not _REQUEST_ID_RE.fullmatch(effective_id):
         raise ContractError("invalid request ID")
+    safe_requester = _safe_value(requester_name, fallback="NemoClaw peer")
     return effective_id, "\n".join(
         [
             f"<@{peer_id}>",
+            (
+                f"Hey there - {safe_requester} here. Could you share your "
+                "public model and context window?"
+            ),
             "[A2A:v1 request]",
             f"id: {effective_id}",
             f"action: {action}",
@@ -425,6 +454,7 @@ def build_response(
     if error:
         return "\n".join(
             [
+                "Hi there - I could not share public model information safely.",
                 "[A2A:v1 response]",
                 f"id: {request.request_id}",
                 "status: error",
@@ -446,13 +476,19 @@ def build_response(
     )
     if sensitive_reasons(raw_public_values):
         raise DisclosureDenied("public response failed deterministic DLP")
+    safe_agent = _safe_value(public_info.agent, fallback="NemoClaw agent")
+    safe_model = _safe_value(public_info.model, fallback="unknown")
     lines = [
+        (
+            f"Hi there - I'm {safe_agent}. I'm running {safe_model}; "
+            "here is my public runtime card."
+        ),
         "[A2A:v1 response]",
         f"id: {request.request_id}",
         "status: ok",
         f"action: {request.action}",
-        f"agent: {_safe_value(public_info.agent, fallback='NemoClaw agent')}",
-        f"model: {_safe_value(public_info.model, fallback='unknown')}",
+        f"agent: {safe_agent}",
+        f"model: {safe_model}",
     ]
     if public_info.context_window is not None:
         if public_info.context_window <= 0:

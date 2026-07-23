@@ -18,6 +18,8 @@ Treat this as a gateway authorization change, not as a prompt-only change.
   policy is false, missing, invalid, or not ready.
 - Handle peer protocol messages before the LLM sees them.
 - Support only `model.info` in v1.
+- Render one deterministic, conversational sentence above each machine
+  envelope using only configured public agent fields.
 - Return only configured public agent name, model, context window, and
   `model.info` capability.
 - Never load Slack history, email, calendar, memory, files, credentials, owner
@@ -68,7 +70,8 @@ Treat this as a gateway authorization change, not as a prompt-only change.
    configuration changed.
 10. Run synthetic request/response tests without Slack. Verify unknown bots,
     wrong channels, malformed envelopes, duplicates, spoofed responses, and
-    response loops are rejected.
+    response loops are rejected. Also simulate Slack auto-linking
+    `model.info` as `<http://model.info|model.info>`.
 11. Generate configuration once with policy enabled and once with policy
     disabled. In disabled mode, verify no `allow_bots`, `SLACK_ALLOW_BOTS`, or
     `agent-collaboration` toolset entry is emitted.
@@ -100,6 +103,8 @@ Do not call the installation complete unless all are true:
 - The Slack app receives `app_mention` and can post replies.
 - Exact owner, peer, and channel allowlists are active in the running image.
 - Peer protocol events bypass the LLM and private tools.
+- Every protocol post uses Slack `parse="none"` with link and media unfurling
+  disabled.
 - The response mentions the requesting bot in the agent room.
 - Pending responses are bound to request ID, peer ID, channel ID, action, and
   originating owner DM.

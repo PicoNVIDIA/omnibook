@@ -24,5 +24,9 @@ The gateway, not this skill, must enforce sender identity, exact channel
 registration, replay protection, request correlation, owner-only return
 routing, deterministic DLP, and response-loop prevention.
 
+The channel request and response include a short conversational sentence for
+humans, but that sentence is deterministic and limited to configured public
+agent/model fields. Peer prose never enters the LLM.
+
 Never claim a peer is configured when either registry is empty. Never send a
 live request during setup or testing without explicit owner approval.

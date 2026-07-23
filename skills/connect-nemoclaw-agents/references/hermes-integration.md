@@ -9,6 +9,7 @@ Slack event
   -> identify sender and bot marker
   -> require explicit mention
   -> exact peer/channel allowlist
+  -> isolate one optional deterministic conversation line
   -> strict A2A parser and replay/correlation checks
   -> direct deterministic Slack response
   -> skip LLM dispatch
@@ -98,6 +99,13 @@ configuration generator must gate `allow_bots: "mentions"`,
 `SLACK_ALLOW_BOTS=mentions`, and the `agent-collaboration` toolset on the same
 validated policy-enabled condition.
 
+Post every protocol request and response through `chat.postMessage` with
+`parse="none"`, `unfurl_links=false`, and `unfurl_media=false`. Slack otherwise
+auto-links the fixed `model.info` token and changes the event text. For
+backward compatibility, normalize only the exact
+`<http://model.info|model.info>` or `<https://model.info|model.info>` spelling
+back to `model.info`; reject every other link.
+
 Hermes v2026.7.1 removes the local app mention before assigning normalized
 `MessageEvent.text`. Pass the original Slack payload text from
 `MessageEvent.raw_message["text"]`, or intercept the event in
@@ -155,12 +163,12 @@ may be logged without stopping dispatch. The policy hook must catch every
 exception and return `{"action": "skip", "reason": "actor_policy_error"}` while
 policy is enabled.
 
-For a deterministic response, schedule the gateway's platform-notice coroutine
-on the running event loop and retain the task in the gateway background-task
-set. For an owner-DM relay, schedule a direct Slack post through the existing
-secret-backed client. If scheduling fails, still return `skip`; never fall
-through to LLM dispatch. Log only exception types, not event content or token
-values.
+For a deterministic response, schedule work on the running event loop and
+retain the task in the gateway background-task set. Protocol replies must use
+the direct Slack post path so the transport flags above are guaranteed. For an
+owner-DM relay, use the same secret-backed client. If scheduling fails, still
+return `skip`; never fall through to LLM dispatch. Log only exception types,
+not event content or token values.
 
 ## Owner-only outbound tool
 
@@ -194,6 +202,12 @@ Build the response from immutable public configuration. Do not ask the LLM to
 answer `model.info`; deterministic handling prevents tool calls, empty model
 responses, prompt injection, and private-context disclosure.
 
+Make the exchange readable by placing one short deterministic sentence before
+the envelope. The request sentence may contain only the configured public agent
+name. The response sentence may contain only the configured public agent name
+and model. The parser may ignore at most one such line before the envelope, and
+must reject it when deterministic disclosure checks find a private marker.
+
 ## Target tests
 
 Add gateway tests that prove:
@@ -206,6 +220,10 @@ Add gateway tests that prove:
 - malformed and duplicate requests are dropped
 - zero, wrong, or additional mentions are dropped
 - normalized mention-stripped text is never used for protocol validation
+- exact Slack auto-linking of `model.info` is normalized and arbitrary links
+  are rejected
+- protocol posts disable Slack URL parsing and unfurling
+- conversational text is deterministic, public-only, and never sent to the LLM
 - one valid request returns one public response
 - response correlation includes peer, channel, request, and action
 - mismatch cannot consume a valid pending request

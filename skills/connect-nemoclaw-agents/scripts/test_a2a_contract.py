@@ -51,12 +51,45 @@ def info() -> PublicAgentInfo:
 
 class ProtocolTest(unittest.TestCase):
     def test_request_round_trip(self):
-        request_id, text = build_request(PEER, request_id="req-12345678")
+        request_id, text = build_request(
+            PEER,
+            request_id="req-12345678",
+            requester_name="Pico NemoClaw",
+        )
         message = parse_message(text)
         self.assertEqual(request_id, "req-12345678")
         self.assertIsNotNone(message)
         self.assertEqual(message.kind, "request")
         self.assertEqual(message.ttl, 1)
+        self.assertIn("Pico NemoClaw here", text)
+
+    def test_slack_autolinked_action_is_normalized(self):
+        _, text = build_request(PEER, request_id="req-12345678")
+        message = parse_message(
+            text.replace(
+                "action: model.info",
+                "action: <http://model.info|model.info>",
+            )
+        )
+        self.assertIsNotNone(message)
+        self.assertEqual(message.action, "model.info")
+
+    def test_arbitrary_slack_link_is_not_normalized(self):
+        _, text = build_request(PEER, request_id="req-12345678")
+        self.assertIsNone(
+            parse_message(
+                text.replace(
+                    "action: model.info",
+                    "action: <http://example.com|model.info>",
+                )
+            )
+        )
+
+    def test_more_than_one_conversation_line_fails_closed(self):
+        _, text = build_request(PEER, request_id="req-12345678")
+        self.assertIsNone(
+            parse_message(text.replace("[A2A:v1 request]", "Extra line\n[A2A:v1 request]"))
+        )
 
     def test_unknown_field_fails_closed(self):
         self.assertIsNone(
@@ -156,10 +189,35 @@ class ProtocolTest(unittest.TestCase):
             )
         )
         rendered = build_response(request, info=info())
+        self.assertIn("I'm Synthetic Agent", rendered)
         self.assertIn("agent: Synthetic Agent", rendered)
         self.assertIn("model: vendor/model-1", rendered)
         self.assertNotIn("email", rendered.lower())
         self.assertNotIn("owner", rendered.lower())
+
+    def test_slack_autolinked_response_is_normalized(self):
+        request = parse_message(
+            "\n".join(
+                [
+                    "[A2A:v1 request]",
+                    "id: req-12345678",
+                    "action: model.info",
+                    "ttl: 1",
+                ]
+            )
+        )
+        rendered = build_response(request, info=info())
+        rendered = rendered.replace(
+            "action: model.info",
+            "action: <http://model.info|model.info>",
+        ).replace(
+            "capabilities: model.info",
+            "capabilities: <http://model.info|model.info>",
+        )
+        parsed = parse_message(rendered)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed.action, "model.info")
+        self.assertEqual(parsed.fields["capabilities"], "model.info")
 
 
 class PeerDispatchTest(unittest.TestCase):
